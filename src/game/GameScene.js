@@ -38,6 +38,9 @@ const BOARD = {
 // Left panel width for expenses box
 const LEFT_W = 196;
 
+// Account card slot dimensions
+const SLOT_W = 172, SLOT_H = 126;
+
 export default class GameScene extends Phaser.Scene {
   constructor() { super({ key: 'GameScene' }); }
 
@@ -51,15 +54,17 @@ export default class GameScene extends Phaser.Scene {
     this.accountSlots  = {};
     this.cardObjects   = [];
     this._lastTag      = null;
+    this.happinessSegGfx = [];
 
     this._drawBackground();
+    this._drawHappinessBar();
     this._drawMainFrame();
     this._drawHangingStats();
     this._drawLeftPanel();
     this._drawAccountSlots();
-    this._drawIconButtons();       // bottom-left of frame
-    this._drawNextYearButton();    // bottom-right of frame
-    this._drawCardHandLabel();     // label above card area, just outside frame
+    this._drawIconButtons();
+    this._drawNextYearButton();
+    this._drawCardHandLabel();
     this._setupInputHandlers();
     this._beginTurn();
   }
@@ -96,6 +101,50 @@ export default class GameScene extends Phaser.Scene {
     g.lineStyle(2.5, 0x7878a8, 1);
     [[bx, by], [bx+30, by-16], [bx-18, by+22], [bx+52, by+8], [bx+14, by+38]].forEach(([x, y]) => {
       g.beginPath(); g.moveTo(x-9, y-5); g.lineTo(x, y); g.lineTo(x+9, y-5); g.strokePath();
+    });
+  }
+
+  // ─── HAPPINESS BAR ─────────────────────────────────────────────────────────
+
+  _drawHappinessBar() {
+    const segments = 20;
+    const segW = 13, segH = 14, segGap = 3;
+    const totalSegW = segments * (segW + segGap) - segGap;
+    const labelText = '🌸 HAPPINESS';
+
+    // Center above the frame
+    const barCenterX = W() / 2;
+    const barY = 14;
+
+    this.add.text(barCenterX - totalSegW / 2 - 120, barY + segH / 2, labelText, {
+      fontSize: '11px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#8a6a70',
+    }).setOrigin(0, 0.5).setDepth(3);
+
+    this.happinessSegGfx = [];
+    for (let i = 0; i < segments; i++) {
+      const g = this.add.graphics();
+      g.setDepth(3);
+      g._sx = barCenterX - totalSegW / 2 + i * (segW + segGap);
+      g._sy = barY;
+      g._sw = segW;
+      g._sh = segH;
+      g._idx = i;
+      this.happinessSegGfx.push(g);
+    }
+    this._refreshHappinessBar();
+  }
+
+  _refreshHappinessBar() {
+    const h = this.state.happiness ?? 10;
+    this.happinessSegGfx.forEach((g, i) => {
+      g.clear();
+      const filled = i < h;
+      g.fillStyle(filled ? 0xd4849a : 0xe0d4d4, 1);
+      g.fillRoundedRect(g._sx, g._sy, g._sw, g._sh, 3);
+      if (!filled) {
+        g.lineStyle(1, 0xc0aaaa, 0.8);
+        g.strokeRoundedRect(g._sx, g._sy, g._sw, g._sh, 3);
+      }
     });
   }
 
@@ -182,36 +231,33 @@ export default class GameScene extends Phaser.Scene {
   // ─── ACCOUNT SLOTS ─────────────────────────────────────────────────────────
 
   _drawAccountSlots() {
-    const ax   = BOARD.left() + LEFT_W + 22;
-    const ay   = BOARD.top();
-    const cardW = 172, cardH = 126, gapX = 16, gapY = 16;
+    const ax = BOARD.left() + LEFT_W + 22;
+    const ay = BOARD.top();
 
-    // Fit as many as possible in available width
-    const positions = [
-      { type: 'checking',    col: 0, row: 0 },
-      { type: 'savings',     col: 1, row: 0 },
-      { type: 'hysa',        col: 2, row: 0 },
-      { type: 'roth_ira',    col: 3, row: 0 },
-      { type: 'trad_ira',    col: 4, row: 0 },
-      { type: 'credit_card', col: 0, row: 1 },
-      { type: 'brokerage',   col: 1, row: 1 },
-    ];
+    // Only checking (always open) and savings (locked until card played) start on the board.
+    // All other accounts appear dynamically when their card is dragged to the board.
+    this._createAccountSlot('checking', ax, ay, SLOT_W, SLOT_H);
+    this._createAccountSlot('savings',  ax + SLOT_W + 16, ay, SLOT_W, SLOT_H);
 
-    positions.forEach(({ type, col, row }) => {
-      this._createAccountSlot(type, ax + col * (cardW + gapX), ay + row * (cardH + gapY), cardW, cardH);
-    });
+    // Large invisible drop zone covering the whole board area for account card placement
+    const bw = BOARD.right() - BOARD.left();
+    const bh = BOARD.bottom() - BOARD.top();
+    this.boardDropZone = this.add.zone(
+      BOARD.left() + bw / 2, BOARD.top() + bh / 2, bw, bh
+    ).setRectangleDropZone(bw, bh);
   }
 
-  _createAccountSlot(type, x, y, w, h) {
-    const cfg    = ACCOUNT_CONFIG[type];
+  _createAccountSlot(type, x, y, w, h, presetRate = null) {
+    const cfg    = ACCOUNT_CONFIG[type.replace(/_\d+$/, '')] ?? ACCOUNT_CONFIG.checking;
     if (!cfg) return;
     const isOpen = type === 'checking' || !!this.state.accounts[type];
 
     const borderColors = {
       checking: 0x3a3028, savings: 0x789060, hysa: 0x4a9040,
       credit_card: 0xc45050, roth_ira: 0xb09820, trad_ira: 0x808040, brokerage: 0x508050,
+      cd: 0x806040, auto_loan: 0x907050, home_loan: 0x607050,
     };
-    const borderCol = borderColors[type] ?? 0x8a7060;
+    const borderCol = borderColors[type.replace(/_\d+$/, '')] ?? 0x8a7060;
 
     const g = this.add.graphics();
     g.fillStyle(0xfaf6ef, isOpen ? 1 : 0.5);
@@ -223,11 +269,10 @@ export default class GameScene extends Phaser.Scene {
       g.strokeRoundedRect(x, y, w, h, 10);
     }
 
-    // Rate badge
-    const rate     = this._rollInterestRate(type);
+    const rate      = presetRate ?? this._rollInterestRate(type);
     const rateLabel = cfg.interestMax > 0 ? `${(rate * 100).toFixed(0)}%` : '0%';
-    const badgeX   = x + w - 20, badgeY = y + 18;
-    const badge    = this.add.graphics();
+    const badgeX    = x + w - 20, badgeY = y + 18;
+    const badge     = this.add.graphics();
     badge.fillStyle(borderCol, isOpen ? 1 : 0.3);
     badge.fillCircle(badgeX, badgeY, 16);
     this.add.text(badgeX, badgeY, rateLabel, {
@@ -245,7 +290,7 @@ export default class GameScene extends Phaser.Scene {
 
     let lockText = null;
     if (!isOpen) {
-      lockText = this.add.text(x + w / 2, y + h / 2 + 10, 'play card\nto open', {
+      lockText = this.add.text(x + w / 2, y + h / 2 + 10, 'drag card\nto open', {
         fontSize: '11px', fontFamily: 'Nunito', color: '#b0a090', align: 'center',
       }).setOrigin(0.5);
     }
@@ -260,9 +305,59 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _rollInterestRate(type) {
-    const cfg = ACCOUNT_CONFIG[type];
+    const cfg = ACCOUNT_CONFIG[type.replace(/_\d+$/, '')];
     if (!cfg?.interestMin) return 0;
     return cfg.interestMin + Math.random() * (cfg.interestMax - cfg.interestMin);
+  }
+
+  // Called when an account card is dragged onto the board area
+  _placeAccountCardAtPosition(card, container, dropX, dropY) {
+    const type = card.accountType;
+
+    if (type !== 'savings' && this.state.accounts[type]) {
+      this._showToast('This account is already open!', true);
+      this.tweens.add({ targets: container, x: container._origX, y: container._origY, angle: container._origAngle, scaleX: 1, scaleY: 1, duration: 220, ease: 'Power2' });
+      container.setDepth(5);
+      return;
+    }
+
+    // If there's already a pre-drawn slot for this type (e.g. savings), open it in place
+    if (this.accountSlots[type]) {
+      const slot = this.accountSlots[type];
+      slot.active = true;
+      slot.lockText?.setText('');
+      slot.gfx.clear();
+      slot.gfx.fillStyle(0xfaf6ef, 1);
+      slot.gfx.fillRoundedRect(slot.x, slot.y, slot.w, slot.h, 10);
+      const borderColors = { checking: 0x3a3028, savings: 0x789060, hysa: 0x4a9040, credit_card: 0xc45050, roth_ira: 0xb09820, trad_ira: 0x808040, brokerage: 0x508050, cd: 0x806040 };
+      this._dashedRect(slot.gfx, slot.x, slot.y, slot.w, slot.h, borderColors[type] ?? 0x8a7060, 7, 5);
+      slot.badge.clear();
+      const bCol = borderColors[type] ?? 0x8a7060;
+      slot.badge.fillStyle(bCol, 1);
+      slot.badge.fillCircle(slot.x + slot.w - 20, slot.y + 18, 16);
+      slot.balText?.setStyle({ color: '#3a5028' });
+      if (!this.state.accounts[type]) {
+        this.state.accounts[type] = { balance: 0, interestRate: slot.rate };
+      }
+    } else {
+      // Create a brand-new slot at the drop position, clamped to board bounds
+      const x = Math.max(BOARD.left(), Math.min(dropX - SLOT_W / 2, BOARD.right() - SLOT_W));
+      const y = Math.max(BOARD.top(), Math.min(dropY - SLOT_H / 2, BOARD.bottom() - SLOT_H));
+      const rate = this._rollInterestRate(type);
+      this.state.accounts[type] = { balance: 0, interestRate: rate };
+      this._createAccountSlot(type, x, y, SLOT_W, SLOT_H, rate);
+    }
+
+    // Opening an account gives +1 happiness
+    this.state.happiness = Math.min(20, (this.state.happiness ?? 10) + 1);
+    this._refreshHappinessBar();
+
+    this.deck.playCard(card.id);
+    container.destroy();
+    this.cardObjects = this.cardObjects.filter(c => c !== container);
+    this._renderCards();
+    this._showToast(`${card.name} opened! 🌱`);
+    this._refreshHUD();
   }
 
   // ─── ICON BUTTONS — bottom-left of frame ───────────────────────────────────
@@ -272,7 +367,6 @@ export default class GameScene extends Phaser.Scene {
     const gap   = 10;
     const total = 3 * btnH + 2 * gap;
     const x     = BOARD.left() + 6;
-    // Stack them just above the bottom edge of the frame
     const startY = FR.bottom() - total - 18;
 
     const buttons = [
@@ -312,7 +406,6 @@ export default class GameScene extends Phaser.Scene {
     const bx = FR.right() - 22;
     const by = FR.bottom() - 22;
 
-    // Draw pill background
     const g = this.add.graphics();
     const pw = 180, ph = 38;
     const px = bx - pw, py = by - ph;
@@ -344,7 +437,7 @@ export default class GameScene extends Phaser.Scene {
     this.state = applyMarkets(this.state);
     this._dropIncome();
     this.deck.discardHand();
-    this.deck.drawCards(HAND_SIZE);
+    this.deck.drawCards(HAND_SIZE, this.state.turn);
     this._renderCards();
     this._refreshUI();
   }
@@ -352,7 +445,6 @@ export default class GameScene extends Phaser.Scene {
   _dropIncome() {
     const coinCount = Math.floor(this.state.income / COIN_VALUE);
     const slot = this.accountSlots['checking'];
-    // Drop new income coins in the center-board area (not inside any account)
     const cx = slot ? slot.x + slot.w / 2 : BOARD.left() + LEFT_W + 120;
     const cy = BOARD.top() + (slot ? slot.h + 28 : 80);
 
@@ -384,11 +476,21 @@ export default class GameScene extends Phaser.Scene {
   _clearSelection()   { this.selectedCoins.forEach(c => c.setSelected(false)); this.selectedCoins = []; }
 
   _setupInputHandlers() {
-    this.input.on('dragstart', (ptr, obj) => obj.setDepth(100));
+    this.input.on('dragstart', (ptr, obj) => {
+      if (obj.isAccountCard) {
+        // Cancel hover scale animation and raise to top
+        this.tweens.killTweensOf(obj);
+        obj.setScale(1).setAngle(0);
+        obj.setDepth(150);
+        return;
+      }
+      obj.setDepth(100);
+    });
 
     this.input.on('drag', (ptr, obj, dx, dy) => {
       obj.setPosition(dx, dy);
-      if (this.selectedCoins.length > 1) {
+      // Fan follower for multi-coin drag
+      if (!obj.isAccountCard && this.selectedCoins.length > 1) {
         const lead = this.selectedCoins[0];
         if (obj === lead.container) {
           this.selectedCoins.slice(1).forEach((c, i) => {
@@ -399,6 +501,12 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.input.on('drop', (ptr, obj, zone) => {
+      if (obj.isAccountCard) {
+        // Account card dropped — place at pointer position
+        this._placeAccountCardAtPosition(obj.cardData, obj, ptr.worldX, ptr.worldY);
+        return;
+      }
+      // Coin dropped on an account slot
       const slot = this._findSlotByZone(zone);
       if (slot && slot.active) {
         const toMove = this.selectedCoins.length > 0
@@ -411,10 +519,28 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.input.on('dragend', (ptr, obj, dropped) => {
+      if (obj.isAccountCard) {
+        if (!dropped) {
+          // Check if dropped within the board area
+          const onBoard = ptr.worldX >= BOARD.left() && ptr.worldX <= BOARD.right()
+                       && ptr.worldY >= BOARD.top()  && ptr.worldY <= BOARD.bottom();
+          if (onBoard) {
+            this._placeAccountCardAtPosition(obj.cardData, obj, ptr.worldX, ptr.worldY);
+          } else {
+            // Snap back to hand
+            this.tweens.add({
+              targets: obj, x: obj._origX, y: obj._origY, angle: obj._origAngle,
+              scaleX: 1, scaleY: 1, duration: 220, ease: 'Power2',
+            });
+            obj.setDepth(5);
+          }
+        }
+        return;
+      }
       if (!dropped) obj.setDepth(20);
     });
 
-    // Marquee selection
+    // Marquee selection for coins
     let msStart = null, msRect = null;
     this.input.on('pointerdown', (ptr) => { msStart = { x: ptr.worldX, y: ptr.worldY }; });
     this.input.on('pointermove', (ptr) => {
@@ -460,7 +586,6 @@ export default class GameScene extends Phaser.Scene {
     entry.accountType = slotType;
     coinSprite.accountType = slotType;
 
-    // Stack coins loosely: random pile near the bottom-center of the account card
     const cx = slot.x + slot.w / 2 + (Math.random() - 0.5) * (slot.w * 0.44);
     const cy = slot.y + slot.h * 0.68 + (Math.random() - 0.5) * 14;
     coinSprite.moveTo(cx, cy);
@@ -489,17 +614,14 @@ export default class GameScene extends Phaser.Scene {
     if (n === 0) return;
 
     const cardW   = 118, cardH = 148;
-    // Spread cards evenly across screen width, no crowding
     const maxSpread = W() - 120;
     const spacing   = Math.min(148, maxSpread / Math.max(n, 1));
     const totalW    = spacing * (n - 1);
     const startX    = W() / 2 - totalW / 2;
-    // Cards sit just below the frame with room to show fully
     const cardY     = FR.bottom() + cardH / 2 + 22;
 
     hand.forEach((card, i) => {
       const cx = startX + i * spacing;
-      // Gentle tilt only — max ±4° at the edges so text stays readable
       const tilt = n > 1 ? ((i / (n - 1)) - 0.5) * 8 : 0;
       const obj  = this._makeCardObject(card, cx, cardY, cardW, cardH, tilt);
       obj.setDepth(5 + i);
@@ -509,6 +631,10 @@ export default class GameScene extends Phaser.Scene {
 
   _makeCardObject(card, cx, cy, w, h, rotateDeg = 0) {
     const container = this.add.container(cx, cy);
+    // Store original position for snap-back after aborted drag
+    container._origX     = cx;
+    container._origY     = cy;
+    container._origAngle = rotateDeg;
 
     let fillColor = 0xfaf6ef;
     if (card.subtype === 'positive') fillColor = 0xd8f0d0;
@@ -522,13 +648,17 @@ export default class GameScene extends Phaser.Scene {
     bg.lineStyle(2, 0xa09080, 1);
     bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
 
-    // Colour stripe at top
     const stripeColor = card.subtype === 'positive' ? 0x7ab87a
       : card.subtype === 'negative' ? 0xc45050
       : card.type === 'account'     ? 0xd4a843
       : 0xb8a8c8;
     bg.fillStyle(stripeColor, 1);
     bg.fillRoundedRect(-w / 2, -h / 2, w, 20, { tl: 10, tr: 10, bl: 0, br: 0 });
+
+    // Happiness indicator on card (if applicable)
+    let happinessStr = '';
+    if (card.happinessEffect > 0) happinessStr = `+${card.happinessEffect} 🌸`;
+    else if (card.happinessEffect < 0) happinessStr = `${card.happinessEffect} 🌸`;
 
     const emoji  = this.add.text(0, -h / 2 + 34, card.emoji ?? '🃏', { fontSize: '22px' }).setOrigin(0.5);
     const name   = this.add.text(0, -h / 2 + 58, card.name, {
@@ -541,113 +671,92 @@ export default class GameScene extends Phaser.Scene {
       const cfg = ACCOUNT_CONFIG[card.accountType];
       if (cfg?.interestMax > 0)
         subLine = `${(cfg.interestMin * 100).toFixed(1)}–${(cfg.interestMax * 100).toFixed(1)}% APY`;
+      else
+        subLine = 'Drag to board to open';
     } else if (card.effect?.minAmount) {
       subLine = `$${card.effect.minAmount.toLocaleString()}–$${card.effect.maxAmount.toLocaleString()}`;
     }
-    const sub = this.add.text(0, h / 2 - 38, subLine, {
-      fontSize: '10px', fontFamily: 'Nunito', color: '#6a5f55', fontStyle: 'italic',
+    const sub = this.add.text(0, h / 2 - 42, subLine, {
+      fontSize: '9px', fontFamily: 'Nunito', color: '#6a5f55', fontStyle: 'italic',
     }).setOrigin(0.5);
+
+    const hapText = this.add.text(w / 2 - 4, -h / 2 + 4, happinessStr, {
+      fontSize: '8px', fontFamily: 'Nunito', color: card.happinessEffect >= 0 ? '#5a9050' : '#c45050',
+    }).setOrigin(1, 0);
 
     const flavor = this.add.text(0, h / 2 - 18, card.flavor ?? '', {
       fontSize: '8px', fontFamily: 'Nunito', color: '#8a7a6a',
       wordWrap: { width: w - 14 }, align: 'center',
     }).setOrigin(0.5, 1);
 
-    container.add([bg, emoji, name, sub, flavor]);
+    container.add([bg, emoji, name, sub, hapText, flavor]);
     container.setSize(w, h);
     container.setInteractive({ useHandCursor: true });
     container.setAngle(rotateDeg);
     container.setDepth(5);
 
-    // Hover: scale to 2× and rise so the enlarged card stays on screen
+    // Account cards become draggable; event cards resolve on click
+    if (card.type === 'account') {
+      this.input.setDraggable(container);
+      container.isAccountCard = true;
+      container.cardData = card;
+    }
+
+    // Track pointer distance to distinguish click from drag
+    let downPos = null;
+    container.on('pointerdown', (ptr) => {
+      downPos = { x: ptr.worldX, y: ptr.worldY };
+    });
+    container.on('pointerup', (ptr) => {
+      if (!downPos) return;
+      const dist = Math.hypot(ptr.worldX - downPos.x, ptr.worldY - downPos.y);
+      downPos = null;
+      if (dist < 8 && card.type !== 'account') {
+        this._onCardClick(card, container);
+      } else if (dist < 8 && card.type === 'account') {
+        this._showToast('Drag this card onto the board to open the account! 🌱');
+      }
+    });
+
+    // Hover: scale to 2× and rise
     container.on('pointerover', () => {
+      if (container.isAccountCard && this.input.isDragging(container)) return;
       container.setDepth(200);
       this.tweens.add({
-        targets: container,
-        scaleX: 2, scaleY: 2,
-        y: cy - h * 0.85,   // shift upward so 2× card clears the screen edge
-        angle: 0,
-        duration: 180,
-        ease: 'Back.easeOut',
+        targets: container, scaleX: 2, scaleY: 2,
+        y: cy - h * 0.85, angle: 0, duration: 180, ease: 'Back.easeOut',
       });
     });
     container.on('pointerout', () => {
+      if (container.isAccountCard && this.input.isDragging(container)) return;
       container.setDepth(5);
       this.tweens.add({
-        targets: container,
-        scaleX: 1, scaleY: 1,
-        y: cy,
-        angle: rotateDeg,
-        duration: 160,
-        ease: 'Power2',
+        targets: container, scaleX: 1, scaleY: 1,
+        y: cy, angle: rotateDeg, duration: 160, ease: 'Power2',
       });
     });
-    container.on('pointerdown', () => this._onCardClick(card, container));
 
     return container;
   }
 
   _onCardClick(card, container) {
-    if (card.type === 'account') this._playAccountCard(card, container);
-    else if (card.type === 'event') this._resolveEventCard(card, container);
-  }
-
-  _playAccountCard(card, container) {
-    const type = card.accountType;
-    const slot = this.accountSlots[type];
-    if (!slot) return;
-
-    slot.active = true;
-    slot.lockText?.setText('');
-    slot.gfx.clear();
-    slot.gfx.fillStyle(0xfaf6ef, 1);
-    slot.gfx.fillRoundedRect(slot.x, slot.y, slot.w, slot.h, 10);
-    const borderColors = { checking: 0x3a3028, savings: 0x789060, hysa: 0x4a9040, credit_card: 0xc45050, roth_ira: 0xb09820, trad_ira: 0x808040, brokerage: 0x508050 };
-    this._dashedRect(slot.gfx, slot.x, slot.y, slot.w, slot.h, borderColors[type] ?? 0x8a7060, 7, 5);
-
-    if (!this.state.accounts[type]) {
-      this.state.accounts[type] = { balance: 0, interestRate: slot.rate };
-    }
-    slot.balText?.setStyle({ color: '#3a5028' });
-
-    this.deck.playCard(card.id);
-    container.destroy();
-    this.cardObjects = this.cardObjects.filter(c => c !== container);
-    this._renderCards();
-    this._showToast(`${card.name} opened! 🌱`);
-    this._refreshHUD();
+    if (card.type === 'event') this._resolveEventCard(card, container);
   }
 
   _resolveEventCard(card, container) {
     const effect = card.effect;
     if (!effect) return;
 
-    if (effect.type === 'cash') {
-      const amount = effect.minAmount + Math.floor(Math.random() * (effect.maxAmount - effect.minAmount));
-      const cx = BOARD.left() + LEFT_W + 160, cy = BOARD.top() + 80;
-      for (let i = 0; i < Math.floor(amount / COIN_VALUE); i++) {
-        const coin = new CoinSprite(this, cx + (Math.random() - 0.5) * 100, cy + (Math.random() - 0.5) * 30, 'incoming');
-        coin.container.setDepth(20);
-        this.coins.push({ coin, accountType: 'incoming', amount: COIN_VALUE });
-        this._attachCoinEvents(coin);
-      }
-      this._showToast(`${card.name}: +$${amount.toLocaleString()}! 🌼`);
-    } else if (effect.type === 'expense') {
-      const amount = effect.minAmount + Math.floor(Math.random() * (effect.maxAmount - effect.minAmount));
-      this.state.accounts.checking = {
-        ...this.state.accounts.checking,
-        balance: Math.max(0, (this.state.accounts.checking?.balance ?? 0) - amount),
-      };
-      this._syncAccountBalance('checking');
-      this._showToast(`${card.name}: -$${amount.toLocaleString()} 🍂`, true);
-    } else if (effect.type === 'income_increase') {
-      const amount = effect.minAmount + Math.floor(Math.random() * (effect.maxAmount - effect.minAmount));
-      this.state.income += amount;
-      this._showToast(`Income +$${amount.toLocaleString()}/year! 🌟`);
-    } else if (effect.type === 'credit_score') {
-      this.state.creditScore = Math.min(850, Math.max(300, this.state.creditScore + effect.delta));
-      this._showToast(`Credit score ${effect.delta > 0 ? '+' : ''}${effect.delta}! ⭐`);
+    // Choice cards open a modal; everything else resolves immediately
+    if (effect.type === 'choice') {
+      this._showChoiceModal(card, container);
+      return;
     }
+
+    this._applyEffect(effect, card.name);
+
+    // Apply top-level happiness (non-choice cards)
+    this._applyHappiness(card.happinessEffect, card.name);
 
     card._resolved = true;
     this.deck.playCard(card.id);
@@ -655,6 +764,165 @@ export default class GameScene extends Phaser.Scene {
     this.cardObjects = this.cardObjects.filter(c => c !== container);
     this._renderCards();
     this._refreshHUD();
+  }
+
+  // Applies a single effect descriptor to the game state
+  _applyEffect(effect, sourceName = '') {
+    if (!effect) return;
+
+    switch (effect.type) {
+      case 'cash': {
+        const amount = effect.amount != null
+          ? effect.amount
+          : effect.minAmount + Math.floor(Math.random() * (effect.maxAmount - effect.minAmount + 1));
+        const cx = BOARD.left() + LEFT_W + 160, cy = BOARD.top() + 80;
+        for (let i = 0; i < Math.floor(amount / COIN_VALUE); i++) {
+          const coin = new CoinSprite(this, cx + (Math.random() - 0.5) * 100, cy + (Math.random() - 0.5) * 30, 'incoming');
+          coin.container.setDepth(20);
+          this.coins.push({ coin, accountType: 'incoming', amount: COIN_VALUE });
+          this._attachCoinEvents(coin);
+        }
+        this._showToast(`${sourceName}: +$${amount.toLocaleString()}! 🌼`);
+        break;
+      }
+
+      case 'expense': {
+        const amount = effect.amount != null
+          ? effect.amount
+          : effect.minAmount + Math.floor(Math.random() * (effect.maxAmount - effect.minAmount + 1));
+        this.state.accounts.checking = {
+          ...this.state.accounts.checking,
+          balance: Math.max(0, (this.state.accounts.checking?.balance ?? 0) - amount),
+        };
+        this._syncAccountBalance('checking');
+        this._showToast(`${sourceName}: -$${amount.toLocaleString()} 🍂`, true);
+        break;
+      }
+
+      case 'income_increase': {
+        const amount = effect.amount != null
+          ? effect.amount
+          : effect.minAmount + Math.floor(Math.random() * (effect.maxAmount - effect.minAmount + 1));
+        this.state.income += amount;
+        this._showToast(`Income +$${amount.toLocaleString()}/year! 🌟`);
+        break;
+      }
+
+      case 'expense_set': {
+        // Override a specific expense category's annual amount
+        if (effect.category && this.state.expenses[effect.category] != null) {
+          this.state.expenses = { ...this.state.expenses, [effect.category]: effect.amount };
+        }
+        this._showToast(`${effect.label ?? sourceName}: housing set to $${effect.amount.toLocaleString()}/yr`);
+        break;
+      }
+
+      case 'expense_increase': {
+        if (effect.category && this.state.expenses[effect.category] != null) {
+          this.state.expenses = {
+            ...this.state.expenses,
+            [effect.category]: (this.state.expenses[effect.category] ?? 0) + (effect.amount ?? 0),
+          };
+        }
+        this._showToast(`${effect.category ?? ''} expenses +$${(effect.amount ?? 0).toLocaleString()}/yr`, true);
+        break;
+      }
+
+      case 'credit_score': {
+        this.state.creditScore = Math.min(850, Math.max(300, this.state.creditScore + effect.delta));
+        this._showToast(`Credit score ${effect.delta > 0 ? '+' : ''}${effect.delta}! ⭐`);
+        break;
+      }
+
+      case 'multi': {
+        (effect.effects ?? []).forEach(e => this._applyEffect(e, sourceName));
+        break;
+      }
+
+      case 'noop':
+        break;
+
+      default:
+        // Unhandled effects are silently ignored (future-proofing)
+        break;
+    }
+  }
+
+  _applyHappiness(delta, sourceName = '') {
+    if (!delta) return;
+    this.state.happiness = Math.max(0, Math.min(20, (this.state.happiness ?? 10) + delta));
+    this._refreshHappinessBar();
+    const sign = delta > 0 ? '+' : '';
+    this._showToast(`Happiness ${sign}${delta} 🌸`, delta < 0);
+  }
+
+  // Shows a multiple-choice modal for choice-type cards
+  _showChoiceModal(card, container) {
+    const w = W(), h = H();
+    const pw = 400, ph = Math.min(440, 160 + card.effect.options.length * 68);
+    const px = w / 2 - pw / 2, py = h / 2 - ph / 2;
+
+    const panel = this.add.container(0, 0).setDepth(500);
+    const overlay = this.add.graphics();
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, w, h);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0xfaf6ef, 1);
+    bg.fillRoundedRect(px, py, pw, ph, 16);
+    bg.lineStyle(3, 0x3a3028, 1);
+    bg.strokeRoundedRect(px, py, pw, ph, 16);
+
+    this.add.text(px + pw / 2, py + 22, `${card.emoji}  ${card.name}`, {
+      fontSize: '16px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#3a3028',
+    }).setOrigin(0.5, 0);
+
+    this.add.text(px + pw / 2, py + 48, card.flavor ?? '', {
+      fontSize: '11px', fontFamily: 'Nunito', color: '#8a7a6a', fontStyle: 'italic',
+    }).setOrigin(0.5, 0);
+
+    card.effect.options.forEach((opt, i) => {
+      const btnX = px + 20, btnY = py + 78 + i * 72;
+      const btnW = pw - 40, btnH = 58;
+
+      const btnBg = this.add.graphics();
+      const drawBtn = (fill) => {
+        btnBg.clear();
+        btnBg.fillStyle(fill, 1);
+        btnBg.fillRoundedRect(btnX, btnY, btnW, btnH, 10);
+        btnBg.lineStyle(2, 0xc4b4a0, 1);
+        btnBg.strokeRoundedRect(btnX, btnY, btnW, btnH, 10);
+      };
+      drawBtn(0xfff8f0);
+
+      const hapStr = opt.happinessEffect > 0 ? `  +${opt.happinessEffect}🌸`
+        : opt.happinessEffect < 0 ? `  ${opt.happinessEffect}🌸` : '';
+
+      this.add.text(btnX + 12, btnY + 14, opt.label + hapStr, {
+        fontSize: '13px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#4a3f35',
+        wordWrap: { width: btnW - 24 },
+      });
+
+      const zone = this.add.zone(btnX + btnW / 2, btnY + btnH / 2, btnW, btnH)
+        .setInteractive({ useHandCursor: true });
+      zone.on('pointerover', () => drawBtn(0xfce8d0));
+      zone.on('pointerout',  () => drawBtn(0xfff8f0));
+      zone.on('pointerdown', () => {
+        panel.destroy();
+        // Apply the chosen option's effect
+        this._applyEffect(opt, card.name);
+        this._applyHappiness(opt.happinessEffect ?? card.happinessEffect, card.name);
+        card._resolved = true;
+        this.deck.playCard(card.id);
+        container.destroy();
+        this.cardObjects = this.cardObjects.filter(c => c !== container);
+        this._renderCards();
+        this._refreshHUD();
+      });
+      panel.add([btnBg, zone]);
+    });
+
+    panel.add([overlay, bg]);
   }
 
   // ─── END TURN ──────────────────────────────────────────────────────────────
@@ -670,8 +938,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.state.phase === 'end') { this._showEndGame(); return; }
 
-    // ── Coins STAY on the board as visual reminders ──
-    // Update balance labels from state (interest/expenses already applied)
+    // Coins STAY on the board as visual reminders
     Object.keys(this.accountSlots).forEach(type => {
       const bal  = this.state.accounts[type]?.balance ?? 0;
       const slot = this.accountSlots[type];
@@ -733,7 +1000,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   restartGame() {
-    // On restart, destroy coins
     this.coins.forEach(({ coin }) => coin.destroy());
     this.coins = [];
     this.cardObjects.forEach(o => o.destroy?.());
@@ -750,7 +1016,7 @@ export default class GameScene extends Phaser.Scene {
     const net   = calcNetWorth(this.state);
     const lines = Object.entries(this.state.accounts)
       .filter(([, a]) => a.balance > 0)
-      .map(([k, a]) => `${ACCOUNT_CONFIG[k]?.label ?? k}: $${a.balance.toLocaleString()}`);
+      .map(([k, a]) => `${ACCOUNT_CONFIG[k.replace(/_\d+$/, '')]?.label ?? k}: $${a.balance.toLocaleString()}`);
     lines.push(`Total Net Worth: $${net.toLocaleString()}`);
     this._showToast(lines.join('\n'));
   }
@@ -771,6 +1037,7 @@ export default class GameScene extends Phaser.Scene {
 
   _refreshUI() {
     this._refreshHUD();
+    this._refreshHappinessBar();
     this.expText?.setText(`DUE: $${totalExpenses(this.state.expenses).toLocaleString()}`);
   }
 

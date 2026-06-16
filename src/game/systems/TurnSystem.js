@@ -24,6 +24,7 @@ export function createInitialState() {
     pendingRecurring: [],
     creditEvents: [],
     lastTaxReport: null,
+    happiness: 10,
     phase: 'start',
     log: [],
   };

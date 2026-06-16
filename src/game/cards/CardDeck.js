@@ -7,12 +7,29 @@ export default class CardDeck {
     this.hand = [];
   }
 
-  drawCards(count) {
+  // currentTurn: 0-indexed. Lifecycle cards only enter the hand if within their minTurn/maxTurn window.
+  drawCards(count, currentTurn = 0) {
     const drawn = [];
+    const skipped = [];
     for (let i = 0; i < count; i++) {
       if (this.drawPile.length === 0) this._reshuffle();
-      if (this.drawPile.length > 0) drawn.push(this.drawPile.shift());
+      if (this.drawPile.length === 0) break;
+      const card = this.drawPile.shift();
+      // Gate lifecycle / turn-restricted cards
+      const minOk = card.minTurn == null || currentTurn >= card.minTurn;
+      const maxOk = card.maxTurn == null || currentTurn <= card.maxTurn;
+      if (minOk && maxOk) {
+        drawn.push(card);
+      } else {
+        skipped.push(card);
+        // Try one more card to fill the slot
+        if (this.drawPile.length > 0) {
+          drawn.push(this.drawPile.shift());
+        }
+      }
     }
+    // Return gated cards to the bottom so they can be drawn later
+    this.drawPile.push(...skipped);
     this.hand.push(...drawn);
     return drawn;
   }

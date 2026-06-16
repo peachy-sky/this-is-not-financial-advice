@@ -100,6 +100,22 @@ export const ACCOUNT_CONFIG = {
     color: 0xc8e0c0,
     description: 'No limits. Capital gains tax on profits.',
   },
+  auto_loan: {
+    label: 'Auto Loan Refi',
+    emoji: '🚗',
+    interestMin: 0.03,
+    interestMax: 0.08,
+    color: 0xd4c8b8,
+    description: 'Refinanced auto loan. Lower APR = lower monthly cost.',
+  },
+  home_loan: {
+    label: 'Home Loan Refi',
+    emoji: '🏡',
+    interestMin: 0.025,
+    interestMax: 0.10,
+    color: 0xc8d4b8,
+    description: 'Refinanced mortgage. APR locked for the term.',
+  },
 };
 
 export const MARKETS = {
@@ -164,3 +180,5 @@ export const CREDIT_SCORE_TIERS = [
   { min: 580, label: 'Fair',        color: '#d4a843' },
   { min: 0,   label: 'Poor',        color: '#c45050' },
 ];
+
+export const STAR_THRESHOLDS = { one: 50000, two: 60000, three: 80000 };
