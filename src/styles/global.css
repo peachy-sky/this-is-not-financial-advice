@@ -1,0 +1,29 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --sand: #e8d8c0;
+  --rose: #d4a5a0;
+  --sage: #a8b89a;
+  --cream: #f5f0e8;
+  --terracotta: #c4714a;
+  --lilac: #b8a8c8;
+  --gold: #d4a843;
+  --ink: #4a3f35;
+  --paper: #faf6ef;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--sand);
+  font-family: 'Nunito', sans-serif;
+  color: var(--ink);
+}
+
+canvas { display: block; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--cream); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--sage); border-radius: 3px; }
