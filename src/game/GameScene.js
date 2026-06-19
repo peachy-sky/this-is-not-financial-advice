@@ -485,6 +485,24 @@ export default class GameScene extends Phaser.Scene {
         obj.setDepth(150);
         return;
       }
+
+      // When a coin (or group of selected coins) is picked up, immediately remove
+      // them from their current accounts so balances reflect what's still in each slot.
+      const toUnassign = this.selectedCoins.length > 0
+        ? this.selectedCoins
+        : [this._findCoinByContainer(obj)].filter(Boolean);
+
+      const affectedTypes = new Set();
+      toUnassign.forEach(coinSprite => {
+        const entry = this.coins.find(c => c.coin === coinSprite);
+        if (entry && entry.accountType && entry.accountType !== 'incoming') {
+          affectedTypes.add(entry.accountType);
+          entry.accountType = 'incoming';
+          coinSprite.accountType = 'incoming';
+        }
+      });
+      affectedTypes.forEach(type => this._syncAccountBalance(type));
+
       obj.setDepth(100);
     });
 
