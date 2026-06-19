@@ -234,17 +234,18 @@ export default class GameScene extends Phaser.Scene {
     const ax = BOARD.left() + LEFT_W + 22;
     const ay = BOARD.top();
 
-    // Only checking (always open) and savings (locked until card played) start on the board.
-    // All other accounts appear dynamically when their card is dragged to the board.
-    this._createAccountSlot('checking', ax, ay, SLOT_W, SLOT_H);
-    this._createAccountSlot('savings',  ax + SLOT_W + 16, ay, SLOT_W, SLOT_H);
-
-    // Large invisible drop zone covering the whole board area for account card placement
+    // Board drop zone must be created FIRST so account slot zones (created after) have
+    // higher hit-test priority in Phaser. Otherwise boardDropZone intercepts coin drops.
     const bw = BOARD.right() - BOARD.left();
     const bh = BOARD.bottom() - BOARD.top();
     this.boardDropZone = this.add.zone(
       BOARD.left() + bw / 2, BOARD.top() + bh / 2, bw, bh
     ).setRectangleDropZone(bw, bh);
+
+    // Only checking (always open) and savings (locked until card played) start on the board.
+    // All other accounts appear dynamically when their card is dragged to the board.
+    this._createAccountSlot('checking', ax, ay, SLOT_W, SLOT_H);
+    this._createAccountSlot('savings',  ax + SLOT_W + 16, ay, SLOT_W, SLOT_H);
   }
 
   _createAccountSlot(type, x, y, w, h, presetRate = null) {
@@ -537,6 +538,20 @@ export default class GameScene extends Phaser.Scene {
         }
         return;
       }
+
+      // Position-based fallback for coins: if Phaser's zone system missed the drop
+      // (e.g. boardDropZone intercepted it), check slot bounds manually on release.
+      const coinSprite = this._findCoinByContainer(obj);
+      if (coinSprite) {
+        const cx = obj.x, cy = obj.y;
+        const overlapping = Object.values(this.accountSlots).find(s =>
+          s.active && cx >= s.x && cx <= s.x + s.w && cy >= s.y && cy <= s.y + s.h
+        );
+        if (overlapping) this._placeCoinInSlot(coinSprite, overlapping.type);
+        obj.setDepth(20);
+        return;
+      }
+
       if (!dropped) obj.setDepth(20);
     });
 
