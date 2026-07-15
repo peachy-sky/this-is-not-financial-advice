@@ -44,7 +44,12 @@ const SLOT_W = 172, SLOT_H = 126;
 export default class GameScene extends Phaser.Scene {
   constructor() { super({ key: 'GameScene' }); }
 
-  preload() {}
+  preload() {
+    this.load.image('wood-bg',           '/wood-bg.png');
+    this.load.image('btn-totalassets',   '/buttons-totalassets.png');
+    this.load.image('btn-dictionary',    '/buttons-dictionary.png');
+    this.load.image('btn-stockmarket',   '/buttons-stockmarket.png');
+  }
 
   create() {
     this.state         = createInitialState();
@@ -73,25 +78,12 @@ export default class GameScene extends Phaser.Scene {
 
   _drawBackground() {
     const w = W(), h = H();
-    const bg = this.add.graphics();
-    bg.fillStyle(0xf0ebe0, 1);
-    bg.fillRect(0, 0, w, h);
-
-    const g1 = this.add.graphics();
-    g1.fillStyle(0x96b878, 1);
-    g1.fillEllipse(w * 0.15, h * 0.93, w * 0.65, h * 0.36);
-    g1.fillEllipse(w * 0.72, h * 0.96, w * 0.80, h * 0.32);
-    g1.fillRect(0, h * 0.93, w, h * 0.07);
-
-    const g2 = this.add.graphics();
-    g2.fillStyle(0xaac882, 1);
-    g2.fillEllipse(w * 0.08, h * 0.96, w * 0.44, h * 0.26);
-    g2.fillEllipse(w * 0.55, h * 0.97, w * 0.58, h * 0.22);
-    g2.fillRect(0, h * 0.96, w, h * 0.04);
-
-    const gw = this.add.graphics();
-    gw.fillStyle(0x9ab8d8, 0.55);
-    gw.fillEllipse(w * 0.35, h * 1.04, w * 1.4, h * 0.14);
+    const img = this.add.image(w / 2, h / 2, 'wood-bg');
+    // Scale to cover the full canvas, preserving aspect ratio
+    const scaleX = w / img.width;
+    const scaleY = h / img.height;
+    img.setScale(Math.max(scaleX, scaleY));
+    img.setDepth(0);
 
     this._drawBirds(w * 0.84, h * 0.40);
   }
@@ -364,40 +356,30 @@ export default class GameScene extends Phaser.Scene {
   // ─── ICON BUTTONS — bottom-left of frame ───────────────────────────────────
 
   _drawIconButtons() {
-    const btnH  = 42;
-    const gap   = 10;
-    const total = 3 * btnH + 2 * gap;
-    const x     = BOARD.left() + 6;
-    const startY = FR.bottom() - total - 18;
+    const btnSize = 64;  // display size for each button image
+    const gap     = 10;
+    const total   = 3 * btnSize + 2 * gap;
+    const x       = BOARD.left() + 6;
+    const startY  = FR.bottom() - total - 18;
 
     const buttons = [
-      { icon: '📈', label: 'STOCK MARKET', action: () => this._openMarketPanel() },
-      { icon: '📖', label: 'DICTIONARY',   action: () => this._openGlossary()    },
-      { icon: '📋', label: 'TOTAL ASSETS', action: () => this._openAssetsList()  },
+      { key: 'btn-stockmarket', action: () => this._openMarketPanel() },
+      { key: 'btn-dictionary',  action: () => this._openGlossary()    },
+      { key: 'btn-totalassets', action: () => this._openAssetsList()  },
     ];
 
-    buttons.forEach(({ icon, label, action }, i) => {
-      const by = startY + i * (btnH + gap);
-      const cx = x + 20, cy = by + btnH / 2;
-      const circle = this.add.graphics();
-      const drawCircle = (fill) => {
-        circle.clear();
-        circle.fillStyle(fill, 1);
-        circle.fillCircle(cx, cy, 20);
-        circle.lineStyle(2.5, 0x3a3028, 1);
-        circle.strokeCircle(cx, cy, 20);
-      };
-      drawCircle(0xfaf6ef);
+    buttons.forEach(({ key, action }, i) => {
+      const cy = startY + i * (btnSize + gap) + btnSize / 2;
+      const cx = x + btnSize / 2;
 
-      this.add.text(cx, cy, icon, { fontSize: '17px' }).setOrigin(0.5);
-      this.add.text(cx + 28, cy, label, {
-        fontSize: '11px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#3a3028',
-      }).setOrigin(0, 0.5);
+      const img = this.add.image(cx, cy, key)
+        .setDisplaySize(btnSize, btnSize)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(5);
 
-      const zone = this.add.zone(cx, cy, 44, btnH).setInteractive({ useHandCursor: true });
-      zone.on('pointerdown', action);
-      zone.on('pointerover', () => drawCircle(0xe8e0d0));
-      zone.on('pointerout',  () => drawCircle(0xfaf6ef));
+      img.on('pointerover', () => img.setAlpha(0.75));
+      img.on('pointerout',  () => img.setAlpha(1));
+      img.on('pointerdown', action);
     });
   }
 
@@ -503,17 +485,28 @@ export default class GameScene extends Phaser.Scene {
       });
       affectedTypes.forEach(type => this._syncAccountBalance(type));
 
+      // Record each selected coin's offset from the dragged coin so the
+      // whole group moves as a rigid unit during drag.
+      if (this.selectedCoins.length > 1 && this.selectedCoins.some(c => c.container === obj)) {
+        this.selectedCoins.forEach(c => {
+          c._dragOffsetX = c.container.x - obj.x;
+          c._dragOffsetY = c.container.y - obj.y;
+        });
+      }
+
       obj.setDepth(100);
     });
 
     this.input.on('drag', (ptr, obj, dx, dy) => {
       obj.setPosition(dx, dy);
-      // Fan follower for multi-coin drag
+      // Move all selected coins together, preserving their relative positions
       if (!obj.isAccountCard && this.selectedCoins.length > 1) {
-        const lead = this.selectedCoins[0];
-        if (obj === lead.container) {
-          this.selectedCoins.slice(1).forEach((c, i) => {
-            c.container.setPosition(dx + (i + 1) * 8, dy + (i + 1) * 8);
+        const isDraggingSelected = this.selectedCoins.some(c => c.container === obj);
+        if (isDraggingSelected) {
+          this.selectedCoins.forEach(c => {
+            if (c.container !== obj) {
+              c.container.setPosition(dx + (c._dragOffsetX ?? 0), dy + (c._dragOffsetY ?? 0));
+            }
           });
         }
       }
