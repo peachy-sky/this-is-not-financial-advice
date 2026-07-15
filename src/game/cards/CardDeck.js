@@ -1,8 +1,8 @@
-import { buildFullDeck } from './cardData.js';
+import { buildNPC1Deck } from './npc1Cards.js';
 
 export default class CardDeck {
   constructor() {
-    this.drawPile = buildFullDeck();
+    this.drawPile = buildNPC1Deck();
     this.discardPile = [];
     this.hand = [];
   }

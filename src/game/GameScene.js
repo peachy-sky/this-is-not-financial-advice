@@ -5,9 +5,8 @@ import {
   createInitialState, generateInterest,
   matureCDs, applyMarkets, processEndOfTurn, calcNetWorth, scoreGame,
 } from './systems/TurnSystem.js';
-import { COLORS, COIN_VALUE, TOTAL_TURNS, ACCOUNT_CONFIG, HAND_SIZE } from './constants.js';
+import { COLORS, COIN_VALUE, TOTAL_TURNS, ACCOUNT_CONFIG, HAND_SIZE, EXPENSE_CATEGORIES } from './constants.js';
 import { totalExpenses } from './systems/ExpenseSystem.js';
-import { creditTier } from './systems/CreditSystem.js';
 
 const W = () => window.innerWidth;
 const H = () => window.innerHeight;
@@ -26,10 +25,9 @@ const FR = {
   bottom: () => FRY + H() * 0.74,
 };
 
-// Board content area — inside frame, below the lowest hanging tag
-// Credit score sub-tag ends at FR.y() + 78 + 10 + 44 = FR.y() + 132; add 20px gap
+// Board content area — inside frame, below hanging tags + star bar
 const BOARD = {
-  top:    () => FR.y() + 152,
+  top:    () => FR.y() + 110,
   left:   () => FR.x() + 20,
   right:  () => FR.right() - 20,
   bottom: () => FR.bottom() - 20,
@@ -49,6 +47,7 @@ export default class GameScene extends Phaser.Scene {
     this.load.image('btn-totalassets',   '/buttons-totalassets.png');
     this.load.image('btn-dictionary',    '/buttons-dictionary.png');
     this.load.image('btn-stockmarket',   '/buttons-stockmarket.png');
+    this.load.image('npc-1-icon',        '/npc-1-npc-icon.png');
   }
 
   create() {
@@ -59,10 +58,8 @@ export default class GameScene extends Phaser.Scene {
     this.accountSlots  = {};
     this.cardObjects   = [];
     this._lastTag      = null;
-    this.happinessSegGfx = [];
 
     this._drawBackground();
-    this._drawHappinessBar();
     this._drawMainFrame();
     this._drawHangingStats();
     this._drawLeftPanel();
@@ -96,50 +93,6 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  // ─── HAPPINESS BAR ─────────────────────────────────────────────────────────
-
-  _drawHappinessBar() {
-    const segments = 20;
-    const segW = 13, segH = 14, segGap = 3;
-    const totalSegW = segments * (segW + segGap) - segGap;
-    const labelText = '🌸 HAPPINESS';
-
-    // Center above the frame
-    const barCenterX = W() / 2;
-    const barY = 14;
-
-    this.add.text(barCenterX - totalSegW / 2 - 120, barY + segH / 2, labelText, {
-      fontSize: '11px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#8a6a70',
-    }).setOrigin(0, 0.5).setDepth(3);
-
-    this.happinessSegGfx = [];
-    for (let i = 0; i < segments; i++) {
-      const g = this.add.graphics();
-      g.setDepth(3);
-      g._sx = barCenterX - totalSegW / 2 + i * (segW + segGap);
-      g._sy = barY;
-      g._sw = segW;
-      g._sh = segH;
-      g._idx = i;
-      this.happinessSegGfx.push(g);
-    }
-    this._refreshHappinessBar();
-  }
-
-  _refreshHappinessBar() {
-    const h = this.state.happiness ?? 10;
-    this.happinessSegGfx.forEach((g, i) => {
-      g.clear();
-      const filled = i < h;
-      g.fillStyle(filled ? 0xd4849a : 0xe0d4d4, 1);
-      g.fillRoundedRect(g._sx, g._sy, g._sw, g._sh, 3);
-      if (!filled) {
-        g.lineStyle(1, 0xc0aaaa, 0.8);
-        g.strokeRoundedRect(g._sx, g._sy, g._sw, g._sh, 3);
-      }
-    });
-  }
-
   // ─── MAIN FRAME ────────────────────────────────────────────────────────────
 
   _drawMainFrame() {
@@ -169,8 +122,8 @@ export default class GameScene extends Phaser.Scene {
     const { textObj: nwText } = this._makeHangingTag(nwX, railY, 210, 54, 'NET WORTH:  $0', 22);
     this.hudNetWorth = nwText;
 
-    const { textObj: crText } = this._makeHangingTag(nwX, railY + 78, 190, 44, 'CREDIT SCORE: 600', 10, true);
-    this.hudCredit = crText;
+    this._drawStarBar(nwX, railY);
+    this._drawHearts(nwX, railY);
   }
 
   _makeHangingTag(cx, railY, tagW, tagH, label, stemH = 20, small = false) {
@@ -193,6 +146,102 @@ export default class GameScene extends Phaser.Scene {
     return { g, textObj };
   }
 
+  // ─── LEVEL STAR BAR ────────────────────────────────────────────────────────
+
+  _drawStarBar(nwX, railY) {
+    const barW = 210, barH = 10;
+    const barLeft = nwX - barW / 2;
+    const barY    = railY + 80;
+
+    this._starBar = { left: barLeft, y: barY, w: barW, h: barH };
+
+    // Static background track
+    const bg = this.add.graphics().setDepth(3);
+    bg.fillStyle(0xd8cfc0, 1);
+    bg.fillRoundedRect(barLeft, barY, barW, barH, 4);
+    bg.lineStyle(1, 0xb0a090, 1);
+    bg.strokeRoundedRect(barLeft, barY, barW, barH, 4);
+
+    // Star threshold markers — tick lines and labels above the bar
+    const TOTAL = 1000000;
+    const starDefs = [
+      { net: 50000, label: '⭐' },
+      { net: 60000, label: '⭐⭐' },
+      { net: 80000, label: '⭐⭐⭐' },
+    ];
+    starDefs.forEach(({ net, label }) => {
+      const mx = barLeft + (net / TOTAL) * barW;
+      const mkg = this.add.graphics().setDepth(4);
+      mkg.lineStyle(1.5, 0x3a3028, 0.85);
+      mkg.beginPath(); mkg.moveTo(mx, barY - 1); mkg.lineTo(mx, barY + barH + 1); mkg.strokePath();
+      this.add.text(mx, barY - 3, label, {
+        fontSize: '7px', fontFamily: 'Nunito',
+      }).setOrigin(0.5, 1).setDepth(4);
+    });
+
+    // Dynamic fill — cleared & redrawn on every net worth change
+    this.starBarGfx = this.add.graphics().setDepth(3);
+    this._refreshStarBar(0);
+  }
+
+  _refreshStarBar(netWorth) {
+    if (!this.starBarGfx || !this._starBar) return;
+    const { left, y, w, h } = this._starBar;
+    const TOTAL = 1000000;
+    const g = this.starBarGfx;
+    g.clear();
+
+    const fillW = Math.min((netWorth / TOTAL) * w, w);
+    if (fillW > 0) {
+      g.fillStyle(0xd4a843, 1);
+      g.fillRoundedRect(left, y, fillW, h, 4);
+    }
+
+    // Glow at each star threshold when reached
+    const glowDefs = [
+      { net: 50000, color: 0xffd84a },
+      { net: 60000, color: 0xffd84a },
+      { net: 80000, color: 0xffd84a },
+    ];
+    glowDefs.forEach(({ net, color }) => {
+      if (netWorth >= net) {
+        const mx = left + (net / TOTAL) * w;
+        g.fillStyle(color, 0.75);
+        g.fillCircle(mx, y + h / 2, h * 0.85);
+      }
+    });
+  }
+
+  // ─── HAPPINESS HEARTS ──────────────────────────────────────────────────────
+  // 10 hearts = happiness 0–20 (each heart = 2 points)
+  // White = 0 pts, Pink = 1 pt, Red = 2 pts
+
+  _drawHearts(nwX, railY) {
+    const barW   = 210;
+    const barLeft = nwX - barW / 2;
+    const heartY  = railY + 96;
+
+    this.heartObjects = [];
+    for (let i = 0; i < 10; i++) {
+      const hx = barLeft + (i + 0.5) * (barW / 10);
+      const t = this.add.text(hx, heartY, '♥', {
+        fontSize: '15px', fontFamily: 'Nunito', color: '#d0c8c0',
+      }).setOrigin(0.5).setDepth(4);
+      this.heartObjects.push(t);
+    }
+    this._refreshHearts();
+  }
+
+  _refreshHearts() {
+    const h = this.state?.happiness ?? 10;
+    this.heartObjects?.forEach((t, i) => {
+      const filled = h - i * 2;
+      if (filled >= 2)      t.setColor('#e04848'); // full red
+      else if (filled >= 1) t.setColor('#d4849a'); // half pink
+      else                  t.setColor('#d0c8c0'); // empty white
+    });
+  }
+
   // ─── LEFT PANEL (expenses) ─────────────────────────────────────────────────
 
   _drawLeftPanel() {
@@ -212,12 +261,29 @@ export default class GameScene extends Phaser.Scene {
     this.add.text(x + 10, y + 10, 'EXPENSES', {
       fontSize: '13px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#c45050',
     });
-    this.expText = this.add.text(x + 10, y + 32, `DUE: $${totalExpenses(this.state.expenses).toLocaleString()}`, {
-      fontSize: '12px', fontFamily: 'Nunito', color: '#6a3030',
-    });
+
+    // Two-part balance display: "$current" (red/green) + "/$required" (dark brown)
+    const splitX = x + ew / 2;
+    this.expCurText = this.add.text(splitX - 2, y + 40, '$0', {
+      fontSize: '13px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#c45050',
+    }).setOrigin(1, 0.5);
+    const req = totalExpenses(this.state.expenses);
+    this.expReqText = this.add.text(splitX, y + 40, `/$${req.toLocaleString()}`, {
+      fontSize: '13px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#3a3028',
+    }).setOrigin(0, 0.5);
 
     this.expDropZone = this.add.zone(x + ew / 2, y + eh / 2, ew, eh).setRectangleDropZone(ew, eh);
     this.expSlotPos  = { x: x + ew / 2, y: y + eh / 2 };
+
+    // Register expense box in accountSlots so coins dropped here are tracked
+    this.accountSlots['expense'] = {
+      x, y, w: ew, h: eh,
+      gfx: eg, badge: null, balText: null, lockText: null,
+      dropZone: this.expDropZone, type: 'expense', active: true, rate: 0,
+    };
+    if (!this.state.accounts['expense']) {
+      this.state.accounts['expense'] = { balance: 0 };
+    }
   }
 
   // ─── ACCOUNT SLOTS ─────────────────────────────────────────────────────────
@@ -343,7 +409,6 @@ export default class GameScene extends Phaser.Scene {
 
     // Opening an account gives +1 happiness
     this.state.happiness = Math.min(20, (this.state.happiness ?? 10) + 1);
-    this._refreshHappinessBar();
 
     this.deck.playCard(card.id);
     container.destroy();
@@ -353,34 +418,53 @@ export default class GameScene extends Phaser.Scene {
     this._refreshHUD();
   }
 
-  // ─── ICON BUTTONS — bottom-left of frame ───────────────────────────────────
+  // ─── ICON BUTTONS + NPC ICON — bottom-left of frame ───────────────────────
 
   _drawIconButtons() {
-    const btnSize = 64;  // display size for each button image
-    const gap     = 10;
-    const total   = 3 * btnSize + 2 * gap;
-    const x       = BOARD.left() + 6;
-    const startY  = FR.bottom() - total - 18;
+    const btnSize  = 64;
+    const npcSize  = 128;   // twice the button size
+    const gap      = 10;
+    const npcGap   = 14;    // space between buttons and NPC icon
+    const bottomPad = 18;
+    const x        = BOARD.left() + 6;
+    const btnCx    = x + btnSize / 2;
+    const npcCx    = x + npcSize / 2;
 
+    // NPC icon sits at the very bottom; buttons stack above it
+    const npcCy   = FR.bottom() - bottomPad - npcSize / 2;
+    const btnGroupBottom = npcCy - npcSize / 2 - npcGap;
+    const btnGroupH      = 3 * btnSize + 2 * gap;
+    const startY         = btnGroupBottom - btnGroupH;
+
+    // Three utility buttons
     const buttons = [
       { key: 'btn-stockmarket', action: () => this._openMarketPanel() },
       { key: 'btn-dictionary',  action: () => this._openGlossary()    },
       { key: 'btn-totalassets', action: () => this._openAssetsList()  },
     ];
-
     buttons.forEach(({ key, action }, i) => {
       const cy = startY + i * (btnSize + gap) + btnSize / 2;
-      const cx = x + btnSize / 2;
-
-      const img = this.add.image(cx, cy, key)
+      const img = this.add.image(btnCx, cy, key)
         .setDisplaySize(btnSize, btnSize)
         .setInteractive({ useHandCursor: true })
         .setDepth(5);
-
       img.on('pointerover', () => img.setAlpha(0.75));
       img.on('pointerout',  () => img.setAlpha(1));
       img.on('pointerdown', action);
     });
+
+    // NPC icon — 2× size, opens Budgeting Expenses Window
+    const npc = this.add.image(npcCx, npcCy, 'npc-1-icon')
+      .setDisplaySize(npcSize, npcSize)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(5);
+    npc.on('pointerover', () => {
+      this.tweens.add({ targets: npc, scaleX: npc.scaleX * 1.08, scaleY: npc.scaleY * 1.08, duration: 120, ease: 'Back.easeOut' });
+    });
+    npc.on('pointerout', () => {
+      this.tweens.add({ targets: npc, scaleX: npcSize / npc.width, scaleY: npcSize / npc.height, duration: 100 });
+    });
+    npc.on('pointerdown', () => this._openBudgetWindow());
   }
 
   // ─── NEXT YEAR BUTTON — bottom-right of frame ──────────────────────────────
@@ -626,6 +710,14 @@ export default class GameScene extends Phaser.Scene {
     this.state.accounts[type].balance = balance;
     const slot = this.accountSlots[type];
     if (slot?.balText) slot.balText.setText(`$${balance.toLocaleString()}`);
+
+    if (type === 'expense') {
+      const required = totalExpenses(this.state.expenses);
+      const color = balance >= required ? '#5a9050' : '#c45050';
+      this.expCurText?.setColor(color).setText(`$${balance.toLocaleString()}`);
+      this.expReqText?.setText(`/$${required.toLocaleString()}`);
+    }
+
     this._refreshHUD();
   }
 
@@ -668,10 +760,12 @@ export default class GameScene extends Phaser.Scene {
     if (card.subtype === 'special')  fillColor = 0xe8e0f8;
     if (card.type === 'account')     fillColor = 0xf8f0e0;
 
+    const isRequired = card.type === 'event_required' || card.required;
+
     const bg = this.add.graphics();
     bg.fillStyle(fillColor, 1);
     bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-    bg.lineStyle(2, 0xa09080, 1);
+    bg.lineStyle(isRequired ? 3 : 2, isRequired ? 0xc43030 : 0xa09080, 1);
     bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
 
     const stripeColor = card.subtype === 'positive' ? 0x7ab87a
@@ -715,7 +809,14 @@ export default class GameScene extends Phaser.Scene {
       wordWrap: { width: w - 14 }, align: 'center',
     }).setOrigin(0.5, 1);
 
-    container.add([bg, emoji, name, sub, hapText, flavor]);
+    // Required badge — shown in bottom-right corner of required event cards
+    const reqBadge = isRequired
+      ? this.add.text(w / 2 - 4, h / 2 - 4, '● DUE', {
+          fontSize: '8px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#c43030',
+        }).setOrigin(1, 1)
+      : null;
+
+    container.add([bg, emoji, name, sub, hapText, flavor, ...(reqBadge ? [reqBadge] : [])]);
     container.setSize(w, h);
     container.setInteractive({ useHandCursor: true });
     container.setAngle(rotateDeg);
@@ -766,7 +867,9 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _onCardClick(card, container) {
-    if (card.type === 'event') this._resolveEventCard(card, container);
+    if (card.type === 'event' || card.type === 'event_optional' || card.type === 'event_required') {
+      this._resolveEventCard(card, container);
+    }
   }
 
   _resolveEventCard(card, container) {
@@ -797,6 +900,7 @@ export default class GameScene extends Phaser.Scene {
     if (!effect) return;
 
     switch (effect.type) {
+      case 'income':            // alias for cash (spawns coins)
       case 'cash': {
         const amount = effect.amount != null
           ? effect.amount
@@ -812,6 +916,7 @@ export default class GameScene extends Phaser.Scene {
         break;
       }
 
+      case 'expense_immediate':  // alias for expense (deducts from checking)
       case 'expense': {
         const amount = effect.amount != null
           ? effect.amount
@@ -877,7 +982,7 @@ export default class GameScene extends Phaser.Scene {
   _applyHappiness(delta, sourceName = '') {
     if (!delta) return;
     this.state.happiness = Math.max(0, Math.min(20, (this.state.happiness ?? 10) + delta));
-    this._refreshHappinessBar();
+    this._refreshHearts();
     const sign = delta > 0 ? '+' : '';
     this._showToast(`Happiness ${sign}${delta} 🌸`, delta < 0);
   }
@@ -954,9 +1059,12 @@ export default class GameScene extends Phaser.Scene {
   // ─── END TURN ──────────────────────────────────────────────────────────────
 
   _onEndTurn() {
-    const unresolved = this.deck.hand.filter(c => c.type === 'event' && !c._resolved);
-    if (unresolved.length > 0) {
-      this._showToast(`Resolve all event cards first! (${unresolved.length} left)`, true);
+    // Required event cards block turn advancement; optional cards can be held
+    const unresolvedRequired = this.deck.hand.filter(
+      c => (c.type === 'event_required' || (c.type === 'event' && c.required)) && !c._resolved
+    );
+    if (unresolvedRequired.length > 0) {
+      this._showToast(`Play required cards first! (${unresolvedRequired.length} left) 🔴`, true);
       return;
     }
 
@@ -1038,6 +1146,95 @@ export default class GameScene extends Phaser.Scene {
   _openMarketPanel() { this._showToast('Stock Market — coming soon! 📈'); }
   _openGlossary()    { this._showToast('Financial Dictionary — coming soon! 📖'); }
 
+  _openBudgetWindow() {
+    const w = W(), h = H();
+    const pw = 420, ph = 380;
+    const px = w / 2 - pw / 2, py = h / 2 - ph / 2;
+
+    const panel = this.add.container(0, 0).setDepth(500);
+    const children = [];
+    const add = obj => { children.push(obj); return obj; };
+
+    const overlay = add(this.add.graphics());
+    overlay.fillStyle(0x000000, 0.45);
+    overlay.fillRect(0, 0, w, h);
+    overlay.setInteractive();
+
+    const bg = add(this.add.graphics());
+    bg.fillStyle(0xfaf6ef, 1);
+    bg.fillRoundedRect(px, py, pw, ph, 16);
+    bg.lineStyle(3, COLORS.ink, 1);
+    bg.strokeRoundedRect(px, py, pw, ph, 16);
+    bg.fillStyle(COLORS.terracotta, 1);
+    bg.fillRoundedRect(px, py, pw, 46, { tl: 16, tr: 16, bl: 0, br: 0 });
+
+    add(this.add.image(px + 34, py + 23, 'npc-1-icon').setDisplaySize(38, 38).setOrigin(0.5));
+
+    add(this.add.text(px + 62, py + 13, 'BUDGETING EXPENSES', {
+      fontSize: '15px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#faf6ef',
+    }));
+
+    const close = add(this.add.text(px + pw - 14, py + 12, '✕', {
+      fontSize: '18px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#faf6ef',
+    }).setOrigin(1, 0).setInteractive({ useHandCursor: true }));
+    close.on('pointerdown', () => panel.destroy());
+
+    add(this.add.text(px + 22, py + 58, '"Here\'s what you\'re spending each year:"', {
+      fontSize: '12px', fontFamily: 'Nunito', fontStyle: 'italic', color: '#6a5f55',
+    }));
+
+    const EMOJIS = {
+      housing: '🏠', groceries: '🛒', dining: '🍽️',
+      transportation: '🚗', insurance: '🛡️', utilities: '💡',
+      entertainment: '🎮', misc: '📦',
+    };
+
+    const total   = totalExpenses(this.state.expenses);
+    const maxAmt  = Math.max(...Object.values(this.state.expenses));
+    const barMaxW = 140;
+    const rowH    = 26;
+    const listY   = py + 82;
+
+    EXPENSE_CATEGORIES.forEach((cat, i) => {
+      const amt  = this.state.expenses[cat.id] ?? 0;
+      const ry   = listY + i * rowH;
+      const barW = amt > 0 ? Math.max(4, Math.round((amt / maxAmt) * barMaxW)) : 0;
+
+      add(this.add.text(px + 18, ry, EMOJIS[cat.id] ?? '•', { fontSize: '13px' }));
+      add(this.add.text(px + 40, ry + 2, cat.label, {
+        fontSize: '12px', fontFamily: 'Nunito', color: '#3a3028',
+      }));
+      add(this.add.text(px + 194, ry + 2, `$${amt.toLocaleString()}`, {
+        fontSize: '12px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#3a3028',
+      }).setOrigin(1, 0));
+
+      const barG = add(this.add.graphics());
+      barG.fillStyle(0xe0d4c0, 1);
+      barG.fillRoundedRect(px + 202, ry + 5, barMaxW, 13, 4);
+      if (barW > 0) {
+        barG.fillStyle(0xc4714a, 0.75);
+        barG.fillRoundedRect(px + 202, ry + 5, barW, 13, 4);
+      }
+    });
+
+    const divY = listY + EXPENSE_CATEGORIES.length * rowH + 4;
+    const divG = add(this.add.graphics());
+    divG.lineStyle(1.5, 0xc0b0a0, 1);
+    divG.beginPath();
+    divG.moveTo(px + 18, divY); divG.lineTo(px + pw - 18, divY);
+    divG.strokePath();
+
+    const totalY = divY + 10;
+    add(this.add.text(px + 18, totalY, 'TOTAL ANNUAL EXPENSES', {
+      fontSize: '12px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#3a3028',
+    }));
+    add(this.add.text(px + 194, totalY, `$${total.toLocaleString()}`, {
+      fontSize: '13px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#c4714a',
+    }).setOrigin(1, 0));
+
+    panel.add(children);
+  }
+
   _openAssetsList() {
     const net   = calcNetWorth(this.state);
     const lines = Object.entries(this.state.accounts)
@@ -1051,20 +1248,20 @@ export default class GameScene extends Phaser.Scene {
 
   _refreshHUD() {
     const net  = calcNetWorth(this.state);
-    const { creditScore, turn, age } = this.state;
-    const tier = creditTier(creditScore);
+    const { turn, age } = this.state;
 
     this.hudAge?.setText(`AGE ${age}  /  YEAR ${turn + 1}`);
     this.hudNetWorth?.setText(`NET WORTH:  $${net.toLocaleString()}`);
-    this.hudCredit?.setText(`CREDIT SCORE: ${creditScore}  (${tier.label})`);
+    this._refreshStarBar(net);
+    this._refreshHearts();
 
     this.registry.get('setGameState')?.({ ...this.state, netWorth: net });
   }
 
   _refreshUI() {
     this._refreshHUD();
-    this._refreshHappinessBar();
-    this.expText?.setText(`DUE: $${totalExpenses(this.state.expenses).toLocaleString()}`);
+    const req = totalExpenses(this.state.expenses);
+    this.expReqText?.setText(`/$${req.toLocaleString()}`);
   }
 
   _showToast(msg, isNeg = false) {

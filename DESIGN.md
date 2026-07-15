@@ -9,7 +9,7 @@
 
 ## Overview
 
-Blitz Card MVP simulates **10 years of personal finance** (ages 25–35) through a card-playing, turn-based board game. Players manage real financial accounts, respond to life events, and try to grow their net worth while keeping their credit score healthy and their happiness up.
+Blitz Card MVP simulates **10 years of personal finance** (ages 25–35) through a card-playing, turn-based board game. Players manage real financial accounts, respond to life events, and try to grow their net worth while keeping their happiness up.
 
 ---
 
@@ -20,10 +20,10 @@ Blitz Card MVP simulates **10 years of personal finance** (ages 25–35) through
 | Background | Wood grain texture (tiled PNG) |
 | Color palette | Warm sand, dusty rose, sage green, cream, terracotta, muted lilac |
 | Font | Nunito (rounded, bubbly sans-serif) |
-| Cards | Illustrated with cozy icons (mushrooms, acorns, leaves, jars, coins) |
+| Cards | Illustrated with cozy icons; card images are per-card PNGs |
 | Coins | Pastel gold circles; each coin = $1,000 |
 | Board | Centered 3/4-width rounded-rect frame on wood background |
-| UI buttons | Custom PNG icons (Stock Market, Dictionary, Total Assets) |
+| UI buttons | Custom PNG icons (Stock Market, Dictionary, Total Assets) + NPC icon |
 | Animations | Soft bouncy easing; coins animate to slots on drop |
 
 ---
@@ -35,17 +35,21 @@ Blitz Card MVP simulates **10 years of personal finance** (ages 25–35) through
 | **Net Worth** | $0 | Sum of all account balances + market holdings |
 | **Age** | 25 | +1 per turn |
 | **Year** | 1–10 | Advances each turn |
-| **Credit Score** | 600 | 300–850; rises/falls based on payment behavior |
+| **Credit Score** | 600 | 300–850; tracked in state, not shown on board |
 | **Annual Income** | $55,000 | Modified by Income event cards |
-| **Annual Expenses** | ~$30,600 | Broken into categories; redistributable |
-| **Happiness** | 10 / 20 | Increased/decreased by cards and life events |
+| **Annual Expenses** | ~$30,600 | Broken into categories |
+| **Happiness Level** | 10 / 20 | Displayed as 10 hearts below the Level Star Bar |
 
 ---
 
 ## Happiness System
 
-- Displayed as a **20-segment bar** at the top of the screen (pink segments)
-- Starts at **10/20**
+- Displayed as **10 heart icons** directly below the Level Star Bar (same 210px width)
+- Each heart represents **2 happiness points** (range 0–20):
+  - ♥ **Red** = 2 pts (fully filled)
+  - ♥ **Pink** = 1 pt (half filled)
+  - ♥ **White** = 0 pts (empty)
+- At happiness 10/20: first 5 hearts are red, last 5 are white
 - Cards show their happiness effect in the top-right corner (`+1 🌸` / `-2 🌸`)
 - Happiness is shown on the **end screen** alongside stars and score
 - **Special prize condition:** happiness ≥ 17 AND stars ≥ 2 → "🎁 You win a special prize!"
@@ -84,17 +88,18 @@ Each turn = 1 year of life.
 ├─────────────────────────────────────────────────────┤
 │  PLAYER ACTION PHASE                                │
 │  • Drag Account Cards onto the board to open them   │
-│  • Click Event Cards to resolve them (REQUIRED)     │
+│  • Play Required Event Cards (MUST resolve first)   │
+│  • Play Optional Event Cards at your leisure        │
 │  • Pick choices on multi-option cards               │
 │  • Drag coins into / out of accounts                │
 │  • Multi-select coins (marquee or Ctrl+click)       │
 ├─────────────────────────────────────────────────────┤
 │  END OF TURN  (click "NEXT YEAR →")                 │
+│  ⚠ Blocked if any Required Event cards unresolved  │
 │  1. Pay taxes (auto-calculated, breakdown shown)    │
-│  2. Pay mandatory expenses                          │
-│  3. Update credit score                             │
-│  4. Age + Year counter advances                     │
-│  5. Coins remain on board as visual reminders       │
+│  2. Update credit score                             │
+│  3. Age + Year counter advances                     │
+│  4. Coins remain on board as visual reminders       │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -158,92 +163,72 @@ All other accounts are **invisible until their card is dragged onto the board**.
 
 ---
 
-## Card Types
+## Card System (Level 1 — npc1Cards.js)
 
-### Account Cards
-Dragged from hand onto the board to open an account at that location. Opening any account gives +1 happiness.
+Cards are defined in `src/game/cards/npc1Cards.js`. Each level has its own card file. Cards have individual PNG artwork (`npc1-<id>.png` in `public/`).
 
-### Event Cards (must all be resolved before ending turn)
+### Card Types
 
-**Simple events** — click to resolve immediately.
-
-**Choice events** — clicking opens a modal with 2–3 options; each option shows its happiness effect.
-
-### Recurring / Lifestyle Cards
-Present ongoing decisions with tradeoffs:
-- **New Place to Rent** — Budget / Comfortable / Luxury (happiness tradeoff)
-- **Job Opportunity** — Same pay + better 401k / +$10k lower match / +$15k worse insurance
-- **Small Business Venture** — Launch it (startup cost + future income) / Pass
-- **Big Family Vacation** — Go all out ($8k, +3 happiness) / Stay home
-
-### Lifecycle Cards (year-gated)
-Only appear in their valid year window:
-
-| Card | Years Available | Key Effects |
+| Type | Key | Mechanic |
 |---|---|---|
-| **Getting Married** | Years 3–6 | Big wedding / Elope / Partner insists; adds second income; +6 to +10 happiness |
-| **New Baby** | Years 7–9 | +6 happiness; +$12k misc expenses; +$2.4k insurance/yr |
+| **Account Card** | `account` | Drag onto board to open a permanent account; opening gives +1 happiness |
+| **Optional Event Card** | `event_optional` | Click to play at any time; can be held across turns if unplayed |
+| **Required Event Card** | `event_required` | **Must be played before "Next Year" is clicked**; shown with red border and "● DUE" badge; turn button is locked until all are resolved |
+
+### Level 1 Card Pool
+
+**Account Cards (5):** Checking, Savings, High-Yield Savings, Roth IRA, Brokerage
+
+**Optional Event Cards (8):** Tax Refund, Side Gig, Work Bonus, Raise at Work, Cash Gift, Car Repair, Vacation, Windfall (choice card)
+
+**Required Event Cards (4):** Rent, Groceries, Utility Bills, Insurance
+
+### Effect Types
+
+| Effect | Description |
+|---|---|
+| `cash` / `income` | Spawn coin tokens on the board |
+| `expense` / `expense_immediate` | Deduct amount from checking account |
+| `income_increase` | Raise annual income permanently |
+| `expense_set` | Override a specific expense category |
+| `expense_increase` | Increase a specific expense category |
+| `credit_score` | Change credit score by delta |
+| `multi` | Apply several effects at once |
+| `choice` | Open a modal with 2–3 options |
+| `noop` | No effect |
 
 ---
 
-## Full Card List
+## Level Star Bar
 
-### Positive Events (17 cards)
+A **210px wide progress bar** displayed directly below the NET WORTH hanging tag.
 
-| Card | Effect | Happiness |
-|---|---|---|
-| Tax Refund | +$500–$3,000 cash | +1 |
-| Inheritance | +$5,000–$20,000 cash | +2 |
-| Work Bonus | +$1,000–$5,000 cash | +1 |
-| Side Hustle | $500/yr×3 OR $1,000 now | +1 |
-| Garage Sale | +$200–$800 cash | +1 |
-| Found Money | +$50–$500 cash | +1 |
-| Freelance Gig | +$1,500 (self-employment tax applies) | +1 |
-| Employer 401k Match | Retirement match boost | +1 |
-| Promotion | Income +$5,000–$10,000 permanently | +2 |
-| Cashback Milestone | +$100–$300 (requires credit card) | +1 |
-| Dividend Payout | 2% of investment holdings | +1 |
-| Windfall Investment | Double a speculative fund deposit | +2 |
-| Tax Law Changed | +$800–$3,500 refund | +1 |
-| Class Action Payout | +$200–$2,000 cash | +1 |
-| Vesting Stock Bonus | +$2,500/yr for 4 turns | +1 |
-| One-Time Side Gig | Choose: Cake Decorating / Tour Guide / Basketball Coach | +1 or +2 |
-| Family Inheritance | +$10,000–$50,000 cash (bittersweet) | −2 |
+- **200 sections**, each representing **$5,000** net worth (total range: $1,000,000)
+- **Star markers** at:
+  - ⭐ $50,000 (section 10)
+  - ⭐⭐ $60,000 (section 12)
+  - ⭐⭐⭐ $80,000 (section 16)
+- Golden **glow highlight** appears at each marker when net worth reaches that threshold
+- Bar fills left-to-right as net worth increases; updates every turn
 
-### Negative Events (17 cards)
+---
 
-| Card | Effect | Happiness |
-|---|---|---|
-| Car Repair | −$500–$2,000 | −1 |
-| Medical Bill | −$1,000–$8,000 | −2 |
-| Job Loss | Income = $0 for 1 turn | −3 |
-| Rent Hike | Housing expenses +$1,200–$3,600 | −2 |
-| Identity Theft | −$500 + credit −30 | −2 |
-| Market Crash | Investment holdings −20–35% | −1 |
-| Pet Emergency (old) | −$800–$3,000 | −1 |
-| Car Totaled | −$8,000–$20,000 | −2 |
-| Legal Dispute | −$1,000–$5,000 | −1 |
-| Inflation Surge | Expenses +8% this turn | −1 |
-| Wrecked Car | Choice: Repair / Buy new / File insurance | −1 |
-| Health Issue | −$2,000–$10,000 | −2 |
-| Vacation Decision | Choice: Nice trip / Budget trip / Skip | 0–+2 |
-| Get a Pet | −$2,000 + $1,200/yr misc expenses | +4 |
-| Pet Health Scare | −$500–$4,000 | −1 |
-| Apartment Flooding | −$1,500–$5,000 (insurance partial) | −2 |
-| Roof Repairs | −$5,000–$20,000 (homeowners only) | −1 |
+## Expenses Box
 
-### Special Cards (4 cards)
+The dashed red **EXPENSES** box in the top-left of the board shows two live values:
 
-| Card | Effect | Happiness |
-|---|---|---|
-| Refinance | Reduce interest rate on a loan (680+ credit required) | +1 |
-| Financial Advisor | Peek at next turn's events | +1 |
-| Emergency Fund Reward | Skip next negative event (if savings ≥ $10k) | +2 |
-| Credit Score Boost | Credit score +25 | +1 |
+- **Current Balance** (coins physically inside the box × $1,000) — shown in **green** if ≥ Amount Required, **red** if not
+- **Amount Required** (annual expenses total) — shown in dark brown
+
+Format: `$[Current Balance] / $[Amount Required]`
+
+Coins can be dragged into the expenses box; their value immediately counts toward the balance.
 
 ---
 
 ## Credit Score System
+
+Tracked in game state (influences end-screen score and event card availability) but no longer displayed on the board.
 
 | Action | Change |
 |---|---|
@@ -298,6 +283,26 @@ Only appear in their valid year window:
 
 ---
 
+## NPC Icon & Budgeting Expenses Window
+
+### NPC Icon
+- Located in the **bottom-left corner** of the board
+- Displays the Level NPC image (`npc-1-npc-icon.png`)
+- Size: **128×128** (twice the size of utility icon buttons)
+- The three utility buttons (Stock Market, Dictionary, Total Assets) sit directly above it
+- Subtle scale pulse on hover
+- Clicking opens the **Budgeting Expenses Window**
+
+### Budgeting Expenses Window
+A centered modal panel showing the player's full expense breakdown:
+- Terracotta header with NPC thumbnail and "BUDGETING EXPENSES" title
+- NPC dialog line: *"Here's what you're spending each year:"*
+- Each expense category listed with: emoji · label · dollar amount · proportional mini bar chart
+- Total annual expenses at the bottom
+- ✕ close button
+
+---
+
 ## Scoring & End Screen
 
 ### Stars (based on final net worth)
@@ -330,19 +335,19 @@ After the end screen, a "Next →" button opens a projection screen:
 ## Board Layout
 
 ```
-┌─────────────────── Happiness Bar (20 segments) ────────────────────┐
-│ 🌸 HAPPINESS  [■■■■■■■■■■□□□□□□□□□□]                               │
-├──────── Frame (3/4 screen width, centered) ─────────────────────────┤
+┌────────────── Frame (3/4 screen width, centered) ───────────────────┐
 │  [AGE 25 / YEAR 1]          [NET WORTH: $0]                         │
-│                               [CREDIT SCORE: 600]                  │
-│ ┌──────────────┐  ┌────────┐  ┌────────┐  ← dynamically placed    │
-│ │  EXPENSES    │  │Checking│  │Savings │     accounts appear here  │
-│ │  DUE: $30k   │  │  $0    │  │ locked │     when cards are dropped│
-│ └──────────────┘  └────────┘  └────────┘                           │
+│                              [■■■■□□□□□□□□□□□□□□□□] ← Level Star Bar│
+│                              [♥♥♥♥♥♡♡♡♡♡] ← Happiness Hearts (10)  │
+│ ┌──────────────┐  ┌────────┐  ┌────────┐  ← dynamically placed     │
+│ │  EXPENSES    │  │Checking│  │Savings │     accounts appear here   │
+│ │ $0 / $30,600 │  │  $0    │  │ locked │     when cards are dropped │
+│ └──────────────┘  └────────┘  └────────┘                            │
 │                                                                      │
 │ [📈]                                    [ NEXT YEAR → ]            │
-│ [📖]  ← PNG icon buttons                                            │
+│ [📖]  ← utility PNG buttons (64×64)                                 │
 │ [📋]                                                                │
+│ [NPC]  ← NPC icon (128×128), opens Budget Window                   │
 └──────────────────────────────────────────────────────────────────────┘
         [ card ]  [ card ]  [ card ]  [ card ]  [ card ]
                         Your Hand
@@ -356,9 +361,11 @@ After the end screen, a "Next →" button opens a projection screen:
 BLITZ-CARD-MVP/
 ├── public/
 │   ├── wood-bg.png               # Wood grain background texture
-│   ├── buttons-stockmarket.png   # Icon button PNGs
+│   ├── buttons-stockmarket.png   # Utility icon button PNGs
 │   ├── buttons-dictionary.png
-│   └── buttons-totalassets.png
+│   ├── buttons-totalassets.png
+│   ├── npc-1-npc-icon.png        # Level 1 NPC icon
+│   └── npc1-<id>.png             # Per-card artwork (one PNG per card)
 ├── src/
 │   ├── main.jsx
 │   ├── App.jsx
@@ -368,7 +375,8 @@ BLITZ-CARD-MVP/
 │   │   ├── constants.js          # Balance constants, STAR_THRESHOLDS
 │   │   ├── cards/
 │   │   │   ├── CardDeck.js       # Deck + turn-gated draw logic
-│   │   │   └── cardData.js       # All card definitions (60+ cards)
+│   │   │   ├── cardData.js       # Legacy card definitions (unused at Level 1)
+│   │   │   └── npc1Cards.js      # Level 1 card pool (account / optional / required)
 │   │   ├── systems/
 │   │   │   ├── CoinSystem.js     # CoinSprite, drag, stack
 │   │   │   ├── TaxSystem.js      # 2026 bracket calculation
@@ -378,7 +386,7 @@ BLITZ-CARD-MVP/
 │   │   │   └── TurnSystem.js     # Turn flow, net worth, scoring
 │   │   └── ui/
 │   │       ├── HUD.jsx           # React stat overlay
-│   │       ├── EndScreen.jsx     # Stars, happiness, retirement screen
+│   │       ├── EndScreen.jsx     # Stars, happiness hearts, retirement screen
 │   │       ├── TaxPanel.jsx      # Tax breakdown modal
 │   │       ├── ExpensePanel.jsx  # Expense adjustment panel
 │   │       └── MarketPanel.jsx   # Market trading panel
@@ -397,32 +405,39 @@ BLITZ-CARD-MVP/
 ### Done ✅
 - Phaser + React + Vite project scaffold
 - Wood grain background texture
-- 3/4-width centered frame with hanging stat tags
-- Happiness bar (20 segments, top of screen)
+- 3/4-width centered frame with hanging stat tags (Age/Year, Net Worth)
+- **Level Star Bar** — 210px bar under Net Worth tag; 200 sections × $5k; star markers + glow at $50k/$60k/$80k
+- **Happiness hearts** — 10 hearts below star bar; white/pink/red based on happiness level (0–20)
 - Coin drag-and-drop (single, multi-select marquee, Ctrl+click)
 - Coins move as rigid group when multi-selected
 - Account balance reflects coins physically in slot (live on drag-out)
+- **Expenses box** — shows live Current Balance / Amount Required; green if met, red if not
 - Dynamic account placement: drag card → account appears at drop position
 - Choice modal for multi-option cards
 - Turn-gated lifecycle cards (marriage yr 3–6, baby yr 7–9)
 - All 10+ account types with interest
 - Full 2026 tax bracket system with end-of-turn breakdown
-- Credit score event system
+- Credit score event system (state-tracked; not displayed on board)
 - Market simulation (3 funds)
 - Expense category system with tradeoffs
 - Star system (1/2/3 stars at $50k/$60k/$80k)
-- End screen: stars, happiness, special prize, composite score
+- End screen: stars, happiness hearts, special prize, composite score
 - Retirement projection screen (compound interest to age 60)
-- PNG icon buttons (Stock Market, Dictionary, Total Assets)
+- PNG icon buttons (Stock Market, Dictionary, Total Assets) — 64×64
+- **NPC icon** (128×128) in bottom-left; opens Budgeting Expenses Window
+- **Budgeting Expenses Window** — full expense breakdown with mini bar charts
+- **npc1Cards.js** — Level 1 card file with account / optional / required card types
+- Required event cards: red border, "● DUE" badge, block turn advancement until resolved
+- Optional event cards: can be held across turns
 - Coin persistence between turns
 - Git repo: peachy-sky/this-is-not-financial-advice
 
 ### Planned / Partial
+- Card artwork PNGs (`npc1-<id>.png`) — structure wired, images to upload
 - Stock Market panel (wired to toast placeholder)
 - Dictionary / Glossary panel
 - Total Assets detail panel
 - Sound effects
-- Expense adjustment panel (built, not wired to UI)
 - CD laddering UI
 - Loan / debt coin system for Auto Loan and Home Loan cards
 
