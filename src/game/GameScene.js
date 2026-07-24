@@ -48,6 +48,7 @@ export default class GameScene extends Phaser.Scene {
     this.load.image('btn-dictionary',    '/buttons-dictionary.png');
     this.load.image('btn-stockmarket',   '/buttons-stockmarket.png');
     this.load.image('npc-1-icon',        '/npc-1-npc-icon.png');
+    this.load.image('next-year-btn',    '/next-year-button.png');
   }
 
   create() {
@@ -473,19 +474,12 @@ export default class GameScene extends Phaser.Scene {
     const bx = FR.right() - 22;
     const by = FR.bottom() - 22;
 
-    const g = this.add.graphics();
-    const pw = 180, ph = 38;
-    const px = bx - pw, py = by - ph;
-    g.fillStyle(0x3a3028, 1);
-    g.fillRoundedRect(px, py, pw, ph, 10);
+    const img = this.add.image(bx, by, 'next-year-btn').setOrigin(1, 1).setDisplaySize(230, 70);
+    img.setInteractive({ useHandCursor: true }).setDepth(5);
 
-    const btn = this.add.text(bx - pw / 2, by - ph / 2, 'NEXT YEAR  →', {
-      fontSize: '15px', fontFamily: 'Nunito', fontStyle: 'bold', color: '#faf6ef',
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
-    btn.on('pointerover', () => { g.clear(); g.fillStyle(0x5a4838, 1); g.fillRoundedRect(px, py, pw, ph, 10); });
-    btn.on('pointerout',  () => { g.clear(); g.fillStyle(0x3a3028, 1); g.fillRoundedRect(px, py, pw, ph, 10); });
-    btn.on('pointerdown', () => this._onEndTurn());
+    img.on('pointerover', () => img.setAlpha(0.85));
+    img.on('pointerout',  () => img.setAlpha(1));
+    img.on('pointerdown', () => this._onEndTurn());
   }
 
   // ─── CARD HAND LABEL (just outside frame bottom) ───────────────────────────
@@ -642,7 +636,13 @@ export default class GameScene extends Phaser.Scene {
         const overlapping = Object.values(this.accountSlots).find(s =>
           s.active && cx >= s.x && cx <= s.x + s.w && cy >= s.y && cy <= s.y + s.h
         );
-        if (overlapping) this._placeCoinInSlot(coinSprite, overlapping.type);
+        if (overlapping) {
+          // Mirror the drop handler: move the whole selection, not just the dragged coin
+          const isGroup = this.selectedCoins.length > 0 && this.selectedCoins.includes(coinSprite);
+          const toMove  = isGroup ? [...this.selectedCoins] : [coinSprite];
+          toMove.forEach(c => this._placeCoinInSlot(c, overlapping.type));
+          if (isGroup) this._clearSelection();
+        }
         obj.setDepth(20);
         return;
       }
